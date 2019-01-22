@@ -20,7 +20,10 @@ import re
 import logging
 import socket
 import time
+import threading
 import settings
+
+import iptc
 
 try:
 	import sqlite3
@@ -29,20 +32,11 @@ except:
 	sys.exit(0)
 
 def color(txt, code = 1, modifier = 0):
-	if txt.startswith('[*]'):
-		settings.Config.PoisonersLogger.warning(txt)
-	elif 'Analyze' in txt:
-		settings.Config.AnalyzeLogger.warning(txt)
-
-	if os.name == 'nt':  # No colors for windows...
-		return txt
-	return "\033[%d;3%dm%s\033[0m" % (modifier, code, txt)
+	return txt
 
 def text(txt):
 	logging.info(txt)
-	if os.name == 'nt':
-		return txt
-	return '\r' + re.sub(r'\[([^]]*)\]', "\033[1;34m[\\1]\033[0m", txt)
+	return txt
 
 
 def IsOnTheSameSubnet(ip, net):
@@ -226,6 +220,85 @@ def NBT_NS_Role(data):
 	}.get(data, 'Service not known')
 
 
+def ThrottleEngine(func):
+	def wrapper(self):
+		func(self)
+		HitCounter(self)
+	return wrapper
+
+
+def HitCounter(srv):
+		clientAddr = srv.client_address[0]
+		dataDict = settings.Config.ThrottleAuditor
+		verbose = settings.Config.ThrottleVerbose
+
+		with settings.Config.ThrottleLock:
+			if (clientAddr not in dataDict):
+				if verbose:
+					settings.Config.PoisonersLogger.info(
+						"Starting monitoring {} for {} seconds".format(
+							clientAddr, settings.Config.ThrottleAuditTimeFrame))
+
+				dataDict[clientAddr] = {}
+				dataDict[clientAddr]['value'] = 0
+				dataDict[clientAddr]['iptableRule'] = None
+				threading.Timer(settings.Config.ThrottleAuditTimeFrame, BlockageDecider, [srv]).start()
+			else:
+				dataDict[clientAddr]['value'] += 1
+				if verbose:
+					settings.Config.PoisonersLogger.info(
+						"Got a hit from {}, current state is {} hits".format(clientAddr, dataDict[clientAddr]['value'])
+					)
+
+
+def BlockageDecider(srv):
+		clientAddr = srv.client_address[0]
+		dataDict = settings.Config.ThrottleAuditor
+		hit_count = dataDict[clientAddr]['value']
+		verbose = settings.Config.ThrottleVerbose
+
+		if hit_count > settings.Config.ThrottleThreshold:
+				if verbose:
+					settings.Config.PoisonersLogger.info("{} reached max threshold of {} messages for {} seconds"
+														 .format(clientAddr,
+																 settings.Config.ThrottleThreshold,
+																 settings.Config.ThrottleAuditTimeFrame))
+				dataDict[clientAddr]['value'] = None
+				settings.Config.PoisonersLogger.info("Blocking {} for {} seconds".format(clientAddr,
+																						 settings.Config.ThrottleTimeThreshold))
+				dataDict[clientAddr]['iptableRule'] = BlockIP(clientAddr)
+				threading.Timer(settings.Config.ThrottleTimeThreshold, ReleaseDecider, [srv]).start()
+		else:
+				if clientAddr in dataDict:
+					settings.Config.PoisonersLogger.info("{} is not spamming the network, restarting the audit window"
+														 .format(clientAddr))
+					del dataDict[clientAddr]
+
+
+def ReleaseDecider(srv):
+		clientAddr = srv.client_address[0]
+		dataDict = settings.Config.ThrottleAuditor
+		RemoveIPTableRule(dataDict[clientAddr]['iptableRule'])
+
+		if clientAddr in dataDict:
+			del dataDict[clientAddr]
+
+
+def BlockIP(ip):
+	rule = iptc.Rule()
+	rule.in_interface = settings.Config.Interface
+	rule.src = ip
+	target = iptc.Target(rule, "DROP")
+	rule.target = target
+	settings.Config.ThrottleIPTables.insert_rule(rule)
+	return rule
+
+
+def RemoveIPTableRule(rule):
+	settings.Config.ThrottleIPTables.delete_rule(rule)
+	settings.Config.PoisonersLogger.info('Releasing IP: {}'.format(rule.src))
+
+
 def banner():
 	banner = "\n".join([
 		'                                         __',
@@ -233,6 +306,7 @@ def banner():
 		'  |   _|  -__|__ --|  _  |  _  |     |  _  ||  -__|   _|',
 		'  |__| |_____|_____|   __|_____|__|__|_____||_____|__|',
 		'                   |__|'
+		' Spiv0t fork'
 	])
 
 	print banner

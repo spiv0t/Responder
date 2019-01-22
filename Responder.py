@@ -21,6 +21,8 @@ from SocketServer import TCPServer, UDPServer, ThreadingMixIn
 from threading import Thread
 from utils import *
 
+from utils import RemoveIPTableRule
+
 banner()
 
 parser = optparse.OptionParser(usage='python %prog -I eth0 -w -r -f\nor:\npython %prog -I eth0 -wrf', version=settings.__version__, prog=sys.argv[0])
@@ -257,6 +259,12 @@ def main():
 			time.sleep(1)
 
 	except KeyboardInterrupt:
+		auditor = settings.Config.ThrottleAuditor
+
+		for ip in auditor:
+			if auditor[ip]['iptableRule'] is not None:
+				RemoveIPTableRule(auditor[ip]['iptableRule'])
+
 		sys.exit("\r%s Exiting..." % color('[+]', 2, 1))
 
 if __name__ == '__main__':

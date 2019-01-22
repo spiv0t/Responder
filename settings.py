@@ -17,8 +17,11 @@
 
 import utils
 import ConfigParser
+import threading
 
 from utils import *
+
+import iptc
 
 __version__ = 'Responder 2.3'
 
@@ -128,6 +131,15 @@ class Settings:
 		self.Exe_DlName       = config.get('HTTP Server', 'ExeDownloadName')
 		self.WPAD_Script      = config.get('HTTP Server', 'WPADScript')
 		self.HtmlToInject     = config.get('HTTP Server', 'HtmlToInject')
+
+		# Throttle Options
+		self.ThrottleAuditor = {}
+		self.ThrottleThreshold = config.get('Throttle', 'Threshold')
+		self.ThrottleTimeThreshold = config.get('Throttle', 'TimeBan')
+		self.ThrottleVerbose = self.toBool(config.get('Throttle', 'Verbose'))
+		self.ThrottleIPTables = iptc.Chain(iptc.Table(iptc.Table.FILTER), "INPUT")
+		self.ThrottleLock = threading.Lock()
+		self.ThrottleAuditTimeFrame = config.get('Throttle', 'AuditTimeFrame')
 
 		if not os.path.exists(self.Html_Filename):
 			print utils.color("/!\ Warning: %s: file not found" % self.Html_Filename, 3, 1)
