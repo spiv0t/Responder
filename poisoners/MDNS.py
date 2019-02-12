@@ -39,6 +39,8 @@ def Poisoned_MDNS_Name(data):
 
 class MDNS(BaseRequestHandler):
 
+	@ArpCacheUpdater
+	@MACFilter
 	@ThrottleEngine
 	def handle(self):
 		MADDR = "224.0.0.251"

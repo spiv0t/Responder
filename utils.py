@@ -26,390 +26,453 @@ import settings
 import iptc
 
 try:
-	import sqlite3
+    import sqlite3
 except:
-	print "[!] Please install python-sqlite3 extension."
-	sys.exit(0)
+    print "[!] Please install python-sqlite3 extension."
+    sys.exit(0)
+
+MAC_RE_COLON = r'([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})'
 
 def color(txt, code = 1, modifier = 0):
-	return txt
+    return txt
 
 def text(txt):
-	logging.info(txt)
-	return txt
+    logging.info(txt)
+    return txt
 
 
 def IsOnTheSameSubnet(ip, net):
-	net += '/24'
-	ipaddr = int(''.join([ '%02x' % int(x) for x in ip.split('.') ]), 16)
-	netstr, bits = net.split('/')
-	netaddr = int(''.join([ '%02x' % int(x) for x in netstr.split('.') ]), 16)
-	mask = (0xffffffff << (32 - int(bits))) & 0xffffffff
-	return (ipaddr & mask) == (netaddr & mask)
+    net += '/24'
+    ipaddr = int(''.join([ '%02x' % int(x) for x in ip.split('.') ]), 16)
+    netstr, bits = net.split('/')
+    netaddr = int(''.join([ '%02x' % int(x) for x in netstr.split('.') ]), 16)
+    mask = (0xffffffff << (32 - int(bits))) & 0xffffffff
+    return (ipaddr & mask) == (netaddr & mask)
 
 
 def RespondToThisIP(ClientIp):
 
-	if ClientIp.startswith('127.0.0.'):
-		return False
-	elif settings.Config.AutoIgnore and ClientIp in settings.Config.AutoIgnoreList:
-		print color('[*]', 3, 1), 'Received request from auto-ignored client %s, not answering.' % ClientIp
-		return False
-	elif settings.Config.RespondTo and ClientIp not in settings.Config.RespondTo:
-		return False
-	elif ClientIp in settings.Config.RespondTo or settings.Config.RespondTo == []:
-		if ClientIp not in settings.Config.DontRespondTo:
-			return True
-	return False
+    if ClientIp.startswith('127.0.0.'):
+        return False
+    elif settings.Config.AutoIgnore and ClientIp in settings.Config.AutoIgnoreList:
+        print color('[*]', 3, 1), 'Received request from auto-ignored client %s, not answering.' % ClientIp
+        return False
+    elif settings.Config.RespondTo and ClientIp not in settings.Config.RespondTo:
+        return False
+    elif ClientIp in settings.Config.RespondTo or settings.Config.RespondTo == []:
+        if ClientIp not in settings.Config.DontRespondTo:
+            return True
+    return False
 
 def RespondToThisName(Name):
-	if settings.Config.RespondToName and Name.upper() not in settings.Config.RespondToName:
-		return False
-	elif Name.upper() in settings.Config.RespondToName or settings.Config.RespondToName == []:
-		if Name.upper() not in settings.Config.DontRespondToName:
-			return True
-	return False
+    if settings.Config.RespondToName and Name.upper() not in settings.Config.RespondToName:
+        return False
+    elif Name.upper() in settings.Config.RespondToName or settings.Config.RespondToName == []:
+        if Name.upper() not in settings.Config.DontRespondToName:
+            return True
+    return False
 
 def RespondToThisHost(ClientIp, Name):
-	return RespondToThisIP(ClientIp) and RespondToThisName(Name)
+    return RespondToThisIP(ClientIp) and RespondToThisName(Name)
 
 def OsInterfaceIsSupported():
-	if settings.Config.Interface != "Not set":
-		return not IsOsX()
-	return False
+    if settings.Config.Interface != "Not set":
+        return not IsOsX()
+    return False
 
 def IsOsX():
-	return sys.platform == "darwin"
+    return sys.platform == "darwin"
 
 def FindLocalIP(Iface, OURIP):
-	if Iface == 'ALL':
-		return '0.0.0.0'
+    if Iface == 'ALL':
+        return '0.0.0.0'
 
-	try:
-		if IsOsX():
-			return OURIP
-		elif OURIP == None:
-			s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-			s.setsockopt(socket.SOL_SOCKET, 25, Iface+'\0')
-			s.connect(("127.0.0.1",9))#RFC 863
-			ret = s.getsockname()[0]
-			s.close()
-			return ret
-		return OURIP
-	except socket.error:
-		print color("[!] Error: %s: Interface not found" % Iface, 1)
-		sys.exit(-1)
+    try:
+        if IsOsX():
+            return OURIP
+        elif OURIP == None:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.setsockopt(socket.SOL_SOCKET, 25, Iface+'\0')
+            s.connect(("127.0.0.1",9))#RFC 863
+            ret = s.getsockname()[0]
+            s.close()
+            return ret
+        return OURIP
+    except socket.error:
+        print color("[!] Error: %s: Interface not found" % Iface, 1)
+        sys.exit(-1)
 
 # Function used to write captured hashs to a file.
 def WriteData(outfile, data, user):
-	logging.info("[*] Captured Hash: %s" % data)
+    logging.info("[*] Captured Hash: %s" % data)
 
-	if not os.path.isfile(outfile):
-		with open(outfile,"w") as outf:
-			outf.write(data + '\n')
-		return
-	with open(outfile,"r") as filestr:
-		if re.search(user.encode('hex'), filestr.read().encode('hex')):
-			return False
-		elif re.search(re.escape("$"), user):
-			return False
-	with open(outfile,"a") as outf2:
-		outf2.write(data + '\n')
+    if not os.path.isfile(outfile):
+        with open(outfile,"w") as outf:
+            outf.write(data + '\n')
+        return
+    with open(outfile,"r") as filestr:
+        if re.search(user.encode('hex'), filestr.read().encode('hex')):
+            return False
+        elif re.search(re.escape("$"), user):
+            return False
+    with open(outfile,"a") as outf2:
+        outf2.write(data + '\n')
 
 
 def SaveToDb(result):
-	# Creating the DB if it doesn't exist
-	if not os.path.exists(settings.Config.DatabaseFile):
-		cursor = sqlite3.connect(settings.Config.DatabaseFile)
-		cursor.execute('CREATE TABLE responder (timestamp varchar(32), module varchar(16), type varchar(16), client varchar(32), hostname varchar(32), user varchar(32), cleartext varchar(128), hash varchar(512), fullhash varchar(512))')
-		cursor.commit()
-		cursor.close()
+    # Creating the DB if it doesn't exist
+    if not os.path.exists(settings.Config.DatabaseFile):
+        cursor = sqlite3.connect(settings.Config.DatabaseFile)
+        cursor.execute('CREATE TABLE responder (timestamp varchar(32), module varchar(16), type varchar(16), client varchar(32), hostname varchar(32), user varchar(32), cleartext varchar(128), hash varchar(512), fullhash varchar(512))')
+        cursor.commit()
+        cursor.close()
 
-	for k in [ 'module', 'type', 'client', 'hostname', 'user', 'cleartext', 'hash', 'fullhash' ]:
-		if not k in result:
-			result[k] = ''
+    for k in [ 'module', 'type', 'client', 'hostname', 'user', 'cleartext', 'hash', 'fullhash' ]:
+        if not k in result:
+            result[k] = ''
 
-	if len(result['user']) < 2:
-		return
+    if len(result['user']) < 2:
+        return
 
-	if len(result['cleartext']):
-		fname = '%s-%s-ClearText-%s.txt' % (result['module'], result['type'], result['client'])
-	else:
-		fname = '%s-%s-%s.txt' % (result['module'], result['type'], result['client'])
-	
-	logfile = os.path.join(settings.Config.ResponderPATH, 'logs', fname)
+    if len(result['cleartext']):
+        fname = '%s-%s-ClearText-%s.txt' % (result['module'], result['type'], result['client'])
+    else:
+        fname = '%s-%s-%s.txt' % (result['module'], result['type'], result['client'])
 
-	cursor = sqlite3.connect(settings.Config.DatabaseFile)
-	cursor.text_factory = sqlite3.Binary  # We add a text factory to support different charsets
-	res = cursor.execute("SELECT COUNT(*) AS count FROM responder WHERE module=? AND type=? AND client=? AND LOWER(user)=LOWER(?)", (result['module'], result['type'], result['client'], result['user']))
-	(count,) = res.fetchone()
+    logfile = os.path.join(settings.Config.ResponderPATH, 'logs', fname)
 
-	if not count:
-		with open(logfile,"a") as outf:
-			if len(result['cleartext']):  # If we obtained cleartext credentials, write them to file
-				outf.write('%s:%s\n' % (result['user'].encode('utf8', 'replace'), result['cleartext'].encode('utf8', 'replace')))
-			else:  # Otherwise, write JtR-style hash string to file
-				outf.write(result['fullhash'].encode('utf8', 'replace') + '\n')
+    cursor = sqlite3.connect(settings.Config.DatabaseFile)
+    cursor.text_factory = sqlite3.Binary  # We add a text factory to support different charsets
+    res = cursor.execute("SELECT COUNT(*) AS count FROM responder WHERE module=? AND type=? AND client=? AND LOWER(user)=LOWER(?)", (result['module'], result['type'], result['client'], result['user']))
+    (count,) = res.fetchone()
 
-		cursor.execute("INSERT INTO responder VALUES(datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?)", (result['module'], result['type'], result['client'], result['hostname'], result['user'], result['cleartext'], result['hash'], result['fullhash']))
-		cursor.commit()
+    if not count:
+        with open(logfile,"a") as outf:
+            if len(result['cleartext']):  # If we obtained cleartext credentials, write them to file
+                outf.write('%s:%s\n' % (result['user'].encode('utf8', 'replace'), result['cleartext'].encode('utf8', 'replace')))
+            else:  # Otherwise, write JtR-style hash string to file
+                outf.write(result['fullhash'].encode('utf8', 'replace') + '\n')
+
+        cursor.execute("INSERT INTO responder VALUES(datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?)", (result['module'], result['type'], result['client'], result['hostname'], result['user'], result['cleartext'], result['hash'], result['fullhash']))
+        cursor.commit()
 
 
-	if not count or settings.Config.Verbose:  # Print output
-		if len(result['client']):
-			print text("[%s] %s Client   : %s" % (result['module'], result['type'], color(result['client'], 3)))
-		if len(result['hostname']):
-			print text("[%s] %s Hostname : %s" % (result['module'], result['type'], color(result['hostname'], 3)))
-		if len(result['user']):
-			print text("[%s] %s Username : %s" % (result['module'], result['type'], color(result['user'], 3)))
-		
-		# Bu order of priority, print cleartext, fullhash, or hash
-		if len(result['cleartext']):
-			print text("[%s] %s Password : %s" % (result['module'], result['type'], color(result['cleartext'], 3)))
-		elif len(result['fullhash']):
-			print text("[%s] %s Hash     : %s" % (result['module'], result['type'], color(result['fullhash'], 3)))
-		elif len(result['hash']):
-			print text("[%s] %s Hash     : %s" % (result['module'], result['type'], color(result['hash'], 3)))
+    if not count or settings.Config.Verbose:  # Print output
+        if len(result['client']):
+            print text("[%s] %s Client   : %s" % (result['module'], result['type'], color(result['client'], 3)))
+        if len(result['hostname']):
+            print text("[%s] %s Hostname : %s" % (result['module'], result['type'], color(result['hostname'], 3)))
+        if len(result['user']):
+            print text("[%s] %s Username : %s" % (result['module'], result['type'], color(result['user'], 3)))
 
-		# Appending auto-ignore list if required
-		# Except if this is a machine account's hash
-		if settings.Config.AutoIgnore and not result['user'].endswith('$'):
-			settings.Config.AutoIgnoreList.append(result['client'])
-			print color('[*] Adding client %s to auto-ignore list' % result['client'], 4, 1)
-	else:
-		print color('[*]', 3, 1), 'Skipping previously captured hash for %s' % result['user']
-		cursor.execute("UPDATE responder SET timestamp=datetime('now') WHERE user=? AND client=?", (result['user'], result['client']))
-		cursor.commit()
-	cursor.close()
+        # Bu order of priority, print cleartext, fullhash, or hash
+        if len(result['cleartext']):
+            print text("[%s] %s Password : %s" % (result['module'], result['type'], color(result['cleartext'], 3)))
+        elif len(result['fullhash']):
+            print text("[%s] %s Hash     : %s" % (result['module'], result['type'], color(result['fullhash'], 3)))
+        elif len(result['hash']):
+            print text("[%s] %s Hash     : %s" % (result['module'], result['type'], color(result['hash'], 3)))
+
+        # Appending auto-ignore list if required
+        # Except if this is a machine account's hash
+        if settings.Config.AutoIgnore and not result['user'].endswith('$'):
+            settings.Config.AutoIgnoreList.append(result['client'])
+            print color('[*] Adding client %s to auto-ignore list' % result['client'], 4, 1)
+    else:
+        print color('[*]', 3, 1), 'Skipping previously captured hash for %s' % result['user']
+        cursor.execute("UPDATE responder SET timestamp=datetime('now') WHERE user=? AND client=?", (result['user'], result['client']))
+        cursor.commit()
+    cursor.close()
 
 
 def Parse_IPV6_Addr(data):
-	if data[len(data)-4:len(data)][1] =="\x1c":
-		return False
-	elif data[len(data)-4:len(data)] == "\x00\x01\x00\x01":
-		return True
-	elif data[len(data)-4:len(data)] == "\x00\xff\x00\x01":
-		return True
-	return False
+    if data[len(data)-4:len(data)][1] =="\x1c":
+        return False
+    elif data[len(data)-4:len(data)] == "\x00\x01\x00\x01":
+        return True
+    elif data[len(data)-4:len(data)] == "\x00\xff\x00\x01":
+        return True
+    return False
 
 def Decode_Name(nbname):  #From http://code.google.com/p/dpkt/ with author's permission.
-	try:
-		from string import printable
+    try:
+        from string import printable
 
-		if len(nbname) != 32:
-			return nbname
-		
-		l = []
-		for i in range(0, 32, 2):
-			l.append(chr(((ord(nbname[i]) - 0x41) << 4) | ((ord(nbname[i+1]) - 0x41) & 0xf)))
-		
-		return filter(lambda x: x in printable, ''.join(l).split('\x00', 1)[0].replace(' ', ''))
-	except:
-		return "Illegal NetBIOS name"
+        if len(nbname) != 32:
+            return nbname
+
+        l = []
+        for i in range(0, 32, 2):
+            l.append(chr(((ord(nbname[i]) - 0x41) << 4) | ((ord(nbname[i+1]) - 0x41) & 0xf)))
+
+        return filter(lambda x: x in printable, ''.join(l).split('\x00', 1)[0].replace(' ', ''))
+    except:
+        return "Illegal NetBIOS name"
 
 
 def NBT_NS_Role(data):
-	return {
-		"\x41\x41\x00":"Workstation/Redirector",
-		"\x42\x4c\x00":"Domain Master Browser",
-		"\x42\x4d\x00":"Domain Controller",
-		"\x42\x4e\x00":"Local Master Browser",
-		"\x42\x4f\x00":"Browser Election",
-		"\x43\x41\x00":"File Server",
-		"\x41\x42\x00":"Browser",
-	}.get(data, 'Service not known')
+    return {
+        "\x41\x41\x00":"Workstation/Redirector",
+        "\x42\x4c\x00":"Domain Master Browser",
+        "\x42\x4d\x00":"Domain Controller",
+        "\x42\x4e\x00":"Local Master Browser",
+        "\x42\x4f\x00":"Browser Election",
+        "\x43\x41\x00":"File Server",
+        "\x41\x42\x00":"Browser",
+    }.get(data, 'Service not known')
 
 
 def ThrottleEngine(func):
+    def wrapper(self):
+        func(self)
+        HitCounter(self)
+    return wrapper
+
+def BanByVendor(self):
+    verbose = settings.Config.ArtTableFilteringVerbose
+    clientAddr = self.client_address[0]
+    if clientAddr in settings.Config.ArpTable:
+        mac = settings.Config.ArpTable[clientAddr]
+        oui = mac[0:8].lower()
+        if oui in settings.Config.VendorTable:
+            if settings.Config.VendorTable[oui] in settings.Config.DontRespondToVendor:
+                if verbose:
+                    print "[*] Dropped request from {} ({})".format(clientAddr, settings.Config.VendorTable[oui])
+                return True
+    return False
+
+def ArpCacheUpdater(func):
+    def wrapper(self):
+        clientAddr = self.client_address[0]
+
+        MAC_RE = r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})'
+        IP_RE = r'((2[0-5]|1[0-9]|[0-9])?[0-9]\.){3}((2[0-5]|1[0-9]|[0-9])?[0-9])'
+
+        arpcache = settings.Config.ArpTable
+
+        if clientAddr not in arpcache:
+            with open("/proc/net/arp", 'r') as f:
+                for rec in f:
+                    if clientAddr in rec:
+                        mac_grp = re.search(MAC_RE, rec)
+                        if mac_grp:
+                            mac = mac_grp.group()
+                            arpcache[clientAddr] = mac
+        func(self)
+    return wrapper
+
+def MACFilter(func):
 	def wrapper(self):
-		func(self)
-		HitCounter(self)
+		isBanned = BanByVendor(self)
+		if not isBanned:
+			func(self)
 	return wrapper
 
 
 def HitCounter(srv):
-		clientAddr = srv.client_address[0]
-		dataDict = settings.Config.ThrottleAuditor
-		verbose = settings.Config.ThrottleVerbose
+        clientAddr = srv.client_address[0]
+        dataDict = settings.Config.ThrottleAuditor
+        verbose = settings.Config.ThrottleVerbose
+        with settings.Config.ThrottleLock:
+            if (clientAddr not in dataDict):
+                if verbose:
+                    settings.Config.PoisonersLogger.info(
+                        "Starting monitoring {} for {} seconds".format(
+                            clientAddr, settings.Config.ThrottleAuditTimeFrame))
 
-		with settings.Config.ThrottleLock:
-			if (clientAddr not in dataDict):
-				if verbose:
-					settings.Config.PoisonersLogger.info(
-						"Starting monitoring {} for {} seconds".format(
-							clientAddr, settings.Config.ThrottleAuditTimeFrame))
-
-				dataDict[clientAddr] = {}
-				dataDict[clientAddr]['value'] = 0
-				dataDict[clientAddr]['iptableRule'] = None
-				threading.Timer(settings.Config.ThrottleAuditTimeFrame, BlockageDecider, [srv]).start()
-			else:
-				dataDict[clientAddr]['value'] += 1
-				if verbose:
-					settings.Config.PoisonersLogger.info(
-						"Got a hit from {}, current state is {} hits".format(clientAddr, dataDict[clientAddr]['value'])
-					)
+                dataDict[clientAddr] = {}
+                dataDict[clientAddr]['value'] = 0
+                dataDict[clientAddr]['iptableRule'] = None
+                threading.Timer(settings.Config.ThrottleAuditTimeFrame, BlockageDecider, [srv]).start()
+            else:
+                dataDict[clientAddr]['value'] += 1
+                if verbose:
+                    settings.Config.PoisonersLogger.info(
+                        "Got a hit from {}, current state is {} hits".format(clientAddr, dataDict[clientAddr]['value'])
+                    )
 
 
 def BlockageDecider(srv):
-		clientAddr = srv.client_address[0]
-		dataDict = settings.Config.ThrottleAuditor
-		hit_count = dataDict[clientAddr]['value']
-		verbose = settings.Config.ThrottleVerbose
+        clientAddr = srv.client_address[0]
+        dataDict = settings.Config.ThrottleAuditor
+        hit_count = dataDict[clientAddr]['value']
+        verbose = settings.Config.ThrottleVerbose
 
-		if hit_count > settings.Config.ThrottleThreshold:
-				if verbose:
-					settings.Config.PoisonersLogger.info("{} reached max threshold of {} messages for {} seconds"
-														 .format(clientAddr,
-																 settings.Config.ThrottleThreshold,
-																 settings.Config.ThrottleAuditTimeFrame))
-				dataDict[clientAddr]['value'] = None
-				settings.Config.PoisonersLogger.info("Blocking {} for {} seconds".format(clientAddr,
-																						 settings.Config.ThrottleTimeThreshold))
-				dataDict[clientAddr]['iptableRule'] = BlockIP(clientAddr)
-				threading.Timer(settings.Config.ThrottleTimeThreshold, ReleaseDecider, [srv]).start()
-		else:
-				if clientAddr in dataDict:
-					settings.Config.PoisonersLogger.info("{} is not spamming the network, restarting the audit window"
-														 .format(clientAddr))
-					del dataDict[clientAddr]
+        if hit_count > settings.Config.ThrottleThreshold:
+                if verbose:
+                    settings.Config.PoisonersLogger.info("{} reached max threshold of {} messages for {} seconds"
+                                                         .format(clientAddr,
+                                                                 settings.Config.ThrottleThreshold,
+                                                                 settings.Config.ThrottleAuditTimeFrame))
+                dataDict[clientAddr]['value'] = None
+                settings.Config.PoisonersLogger.info("Blocking {} for {} seconds".format(clientAddr,
+                                                                                         settings.Config.ThrottleTimeThreshold))
+                dataDict[clientAddr]['iptableRule'] = BlockIP(clientAddr)
+                threading.Timer(settings.Config.ThrottleTimeThreshold, ReleaseDecider, [srv]).start()
+        else:
+                if clientAddr in dataDict:
+                    settings.Config.PoisonersLogger.info("{} is not spamming the network, restarting the audit window"
+                                                         .format(clientAddr))
+                    del dataDict[clientAddr]
 
 
 def ReleaseDecider(srv):
-		clientAddr = srv.client_address[0]
-		dataDict = settings.Config.ThrottleAuditor
-		RemoveIPTableRule(dataDict[clientAddr]['iptableRule'])
+        clientAddr = srv.client_address[0]
+        dataDict = settings.Config.ThrottleAuditor
+        RemoveIPTableRule(dataDict[clientAddr]['iptableRule'])
 
-		if clientAddr in dataDict:
-			del dataDict[clientAddr]
+        if clientAddr in dataDict:
+            del dataDict[clientAddr]
 
 
 def BlockIP(ip):
-	rule = iptc.Rule()
-	rule.in_interface = settings.Config.Interface
-	rule.src = ip
-	target = iptc.Target(rule, "DROP")
-	rule.target = target
-	settings.Config.ThrottleIPTables.insert_rule(rule)
-	return rule
+    rule = iptc.Rule()
+    rule.in_interface = settings.Config.Interface
+    rule.src = ip
+    target = iptc.Target(rule, "DROP")
+    rule.target = target
+    settings.Config.ThrottleIPTables.insert_rule(rule)
+    return rule
 
 
 def RemoveIPTableRule(rule):
-	settings.Config.ThrottleIPTables.delete_rule(rule)
-	settings.Config.PoisonersLogger.info('Releasing IP: {}'.format(rule.src))
+    settings.Config.ThrottleIPTables.delete_rule(rule)
+    settings.Config.PoisonersLogger.info('Releasing IP: {}'.format(rule.src))
 
+
+def loadMacVendorTable():
+	vendor_table = settings.Config.VendorTable
+	with open('resources/mac_vendor', 'r') as f:
+		for record in f:
+			mac = record.split(' ')[0].lower().strip()
+			vendor = record.split(' ')[1].lower().strip()
+			vendor_table[mac] = vendor
 
 def banner():
-	banner = "\n".join([
-		'                                         __',
-		'  .----.-----.-----.-----.-----.-----.--|  |.-----.----.',
-		'  |   _|  -__|__ --|  _  |  _  |     |  _  ||  -__|   _|',
-		'  |__| |_____|_____|   __|_____|__|__|_____||_____|__|',
-		'                   |__|'
-		' Spiv0t fork'
-	])
+    banner = "\n".join([
+        '                                         __',
+        '  .----.-----.-----.-----.-----.-----.--|  |.-----.----.',
+        '  |   _|  -__|__ --|  _  |  _  |     |  _  ||  -__|   _|',
+        '  |__| |_____|_____|   __|_____|__|__|_____||_____|__|',
+        '                   |__|'
+        ' Spiv0t fork (spivi@pcysys.com)'
+    ])
 
-	print banner
-	print "\n           \033[1;33mNBT-NS, LLMNR & MDNS %s\033[0m" % settings.__version__
-	print ""
-	print "  Author: Laurent Gaffie (laurent.gaffie@gmail.com)"
-	print "  To kill this script hit CRTL-C"
-	print ""
+    print banner
+    print "\n           \033[1;33mNBT-NS, LLMNR & MDNS %s\033[0m" % settings.__version__
+    print ""
+    print "  Author: Laurent Gaffie (laurent.gaffie@gmail.com)"
+    print "  To kill this script hit CRTL-C"
+    print ""
 
 
 def StartupMessage():
-	enabled  = color('[ON]', 2, 1) 
-	disabled = color('[OFF]', 1, 1)
+    enabled  = color('[ON]', 2, 1)
+    disabled = color('[OFF]', 1, 1)
 
-	print ""
-	print color("[+] ", 2, 1) + "Poisoners:"
-	print '    %-27s' % "LLMNR" + enabled
-	print '    %-27s' % "NBT-NS" + enabled
-	print '    %-27s' % "DNS/MDNS" + enabled
-	print ""
+    print ""
+    print color("[+] ", 2, 1) + "Poisoners:"
+    print '    %-27s' % "LLMNR" + enabled
+    print '    %-27s' % "NBT-NS" + enabled
+    print '    %-27s' % "DNS/MDNS" + enabled
+    print ""
 
-	print color("[+] ", 2, 1) + "Servers:"
-	print '    %-27s' % "HTTP server" + (enabled if settings.Config.HTTP_On_Off else disabled)
-	print '    %-27s' % "HTTPS server" + (enabled if settings.Config.SSL_On_Off else disabled)
-	print '    %-27s' % "WPAD proxy" + (enabled if settings.Config.WPAD_On_Off else disabled)
-	print '    %-27s' % "SMB server" + (enabled if settings.Config.SMB_On_Off else disabled)
-	print '    %-27s' % "Kerberos server" + (enabled if settings.Config.Krb_On_Off else disabled)
-	print '    %-27s' % "SQL server" + (enabled if settings.Config.SQL_On_Off else disabled)
-	print '    %-27s' % "FTP server" + (enabled if settings.Config.FTP_On_Off else disabled)
-	print '    %-27s' % "IMAP server" + (enabled if settings.Config.IMAP_On_Off else disabled)
-	print '    %-27s' % "POP3 server" + (enabled if settings.Config.POP_On_Off else disabled)
-	print '    %-27s' % "SMTP server" + (enabled if settings.Config.SMTP_On_Off else disabled)
-	print '    %-27s' % "DNS server" + (enabled if settings.Config.DNS_On_Off else disabled)
-	print '    %-27s' % "LDAP server" + (enabled if settings.Config.LDAP_On_Off else disabled)
-	print ""
+    print color("[+] ", 2, 1) + "Servers:"
+    print '    %-27s' % "HTTP server" + (enabled if settings.Config.HTTP_On_Off else disabled)
+    print '    %-27s' % "HTTPS server" + (enabled if settings.Config.SSL_On_Off else disabled)
+    print '    %-27s' % "WPAD proxy" + (enabled if settings.Config.WPAD_On_Off else disabled)
+    print '    %-27s' % "SMB server" + (enabled if settings.Config.SMB_On_Off else disabled)
+    print '    %-27s' % "Kerberos server" + (enabled if settings.Config.Krb_On_Off else disabled)
+    print '    %-27s' % "SQL server" + (enabled if settings.Config.SQL_On_Off else disabled)
+    print '    %-27s' % "FTP server" + (enabled if settings.Config.FTP_On_Off else disabled)
+    print '    %-27s' % "IMAP server" + (enabled if settings.Config.IMAP_On_Off else disabled)
+    print '    %-27s' % "POP3 server" + (enabled if settings.Config.POP_On_Off else disabled)
+    print '    %-27s' % "SMTP server" + (enabled if settings.Config.SMTP_On_Off else disabled)
+    print '    %-27s' % "DNS server" + (enabled if settings.Config.DNS_On_Off else disabled)
+    print '    %-27s' % "LDAP server" + (enabled if settings.Config.LDAP_On_Off else disabled)
+    print ""
 
-	print color("[+] ", 2, 1) + "HTTP Options:"
-	print '    %-27s' % "Always serving EXE" + (enabled if settings.Config.Serve_Always else disabled)
-	print '    %-27s' % "Serving EXE" + (enabled if settings.Config.Serve_Exe else disabled)
-	print '    %-27s' % "Serving HTML" + (enabled if settings.Config.Serve_Html else disabled)
-	print '    %-27s' % "Upstream Proxy" + (enabled if settings.Config.Upstream_Proxy else disabled)
-	#print '    %-27s' % "WPAD script" + settings.Config.WPAD_Script
-	print ""
+    print color("[+] ", 2, 1) + "HTTP Options:"
+    print '    %-27s' % "Always serving EXE" + (enabled if settings.Config.Serve_Always else disabled)
+    print '    %-27s' % "Serving EXE" + (enabled if settings.Config.Serve_Exe else disabled)
+    print '    %-27s' % "Serving HTML" + (enabled if settings.Config.Serve_Html else disabled)
+    print '    %-27s' % "Upstream Proxy" + (enabled if settings.Config.Upstream_Proxy else disabled)
+    #print '    %-27s' % "WPAD script" + settings.Config.WPAD_Script
+    print ""
 
-	print color("[+] ", 2, 1) + "Poisoning Options:"
-	print '    %-27s' % "Analyze Mode" + (enabled if settings.Config.AnalyzeMode else disabled)
-	print '    %-27s' % "Force WPAD auth" + (enabled if settings.Config.Force_WPAD_Auth else disabled)
-	print '    %-27s' % "Force Basic Auth" + (enabled if settings.Config.Basic else disabled)
-	print '    %-27s' % "Force LM downgrade" + (enabled if settings.Config.LM_On_Off == True else disabled)
-	print '    %-27s' % "Fingerprint hosts" + (enabled if settings.Config.Finger_On_Off == True else disabled)
-	print ""
+    print color("[+] ", 2, 1) + "Poisoning Options:"
+    print '    %-27s' % "Analyze Mode" + (enabled if settings.Config.AnalyzeMode else disabled)
+    print '    %-27s' % "Force WPAD auth" + (enabled if settings.Config.Force_WPAD_Auth else disabled)
+    print '    %-27s' % "Force Basic Auth" + (enabled if settings.Config.Basic else disabled)
+    print '    %-27s' % "Force LM downgrade" + (enabled if settings.Config.LM_On_Off == True else disabled)
+    print '    %-27s' % "Fingerprint hosts" + (enabled if settings.Config.Finger_On_Off == True else disabled)
+    print ""
 
-	print color("[+] ", 2, 1) + "Generic Options:"
-	print '    %-27s' % "Responder NIC" + color('[%s]' % settings.Config.Interface, 5, 1)
-	print '    %-27s' % "Responder IP" + color('[%s]' % settings.Config.Bind_To, 5, 1)
-	print '    %-27s' % "Challenge set" + color('[%s]' % settings.Config.NumChal, 5, 1)
+    print color("[+] ", 2, 1) + "Generic Options:"
+    print '    %-27s' % "Responder NIC" + color('[%s]' % settings.Config.Interface, 5, 1)
+    print '    %-27s' % "Responder IP" + color('[%s]' % settings.Config.Bind_To, 5, 1)
+    print '    %-27s' % "Challenge set" + color('[%s]' % settings.Config.NumChal, 5, 1)
+    print ""
 
-	if settings.Config.Upstream_Proxy:
-		print '    %-27s' % "Upstream Proxy" + color('[%s]' % settings.Config.Upstream_Proxy, 5, 1)
-	if len(settings.Config.RespondTo):
-		print '    %-27s' % "Respond To" + color(str(settings.Config.RespondTo), 5, 1)
-	if len(settings.Config.RespondToName):
-		print '    %-27s' % "Respond To Names" + color(str(settings.Config.RespondToName), 5, 1)
-	if len(settings.Config.DontRespondTo):
-		print '    %-27s' % "Don't Respond To" + color(str(settings.Config.DontRespondTo), 5, 1)
-	if len(settings.Config.DontRespondToName):
-		print '    %-27s' % "Don't Respond To Names" + color(str(settings.Config.DontRespondToName), 5, 1)
-	print "\n\n"
+    print color("[+] ", 2, 1) + "Throttling Options:"
+    print '    %-27s' % "Threshold (p/min)" + color('[%s]' % settings.Config.ThrottleThreshold, 5, 1)
+    print '    %-27s' % "IP Time Ban Limit (seconds)" + color('[%s]' % settings.Config.ThrottleTimeThreshold, 5, 1)
+    print '    %-27s' % "Time Auditing Sample Rate" + color('[%s]' % settings.Config.ThrottleAuditTimeFrame, 5, 1)
+    print '    %-27s' % "Verbosity" + color('[%s]' % settings.Config.ThrottleVerbose, 5, 1)
+    print ""
+
+    print color("[+] ", 2, 1) + "MAC Filtering:"
+    print '    %-27s' % "Vendors to ignore" + color('[%s]' % settings.Config.DontRespondToVendor, 5, 1)
+    print '    %-27s' % "ARP Table Refresh Rate" + color('[%s]' % settings.Config.ArpTableRefreshRate, 5, 1)
+    print '    %-27s' % "Verbosity" + color('[%s]' % settings.Config.ArtTableFilteringVerbose, 5, 1)
+    print ""
+
+    if settings.Config.Upstream_Proxy:
+        print '    %-27s' % "Upstream Proxy" + color('[%s]' % settings.Config.Upstream_Proxy, 5, 1)
+    if len(settings.Config.RespondTo):
+        print '    %-27s' % "Respond To" + color(str(settings.Config.RespondTo), 5, 1)
+    if len(settings.Config.RespondToName):
+        print '    %-27s' % "Respond To Names" + color(str(settings.Config.RespondToName), 5, 1)
+    if len(settings.Config.DontRespondTo):
+        print '    %-27s' % "Don't Respond To" + color(str(settings.Config.DontRespondTo), 5, 1)
+    if len(settings.Config.DontRespondToName):
+        print '    %-27s' % "Don't Respond To Names" + color(str(settings.Config.DontRespondToName), 5, 1)
+    print "\n\n"
 
 
 # Useful for debugging
 def hexdump(src, l=0x16):
-	res = []
-	sep = '.'
-	src = str(src)
+    res = []
+    sep = '.'
+    src = str(src)
 
-	for i in range(0, len(src), l):
-		s = src[i:i+l]
-		hexa = ''
+    for i in range(0, len(src), l):
+        s = src[i:i+l]
+        hexa = ''
 
-		for h in range(0,len(s)):
-			if h == l/2:
-				hexa += ' '
-			h = s[h]
-			if not isinstance(h, int):
-				h = ord(h)
-			h = hex(h).replace('0x','')
-			if len(h) == 1:
-				h = '0'+h
-			hexa += h + ' '
+        for h in range(0,len(s)):
+            if h == l/2:
+                hexa += ' '
+            h = s[h]
+            if not isinstance(h, int):
+                h = ord(h)
+            h = hex(h).replace('0x','')
+            if len(h) == 1:
+                h = '0'+h
+            hexa += h + ' '
 
-		hexa = hexa.strip(' ')
-		text = ''
+        hexa = hexa.strip(' ')
+        text = ''
 
-		for c in s:
-			if not isinstance(c, int):
-				c = ord(c)
+        for c in s:
+            if not isinstance(c, int):
+                c = ord(c)
 
-			if 0x20 <= c < 0x7F:
-				text += chr(c)
-			else:
-				text += sep
+            if 0x20 <= c < 0x7F:
+                text += chr(c)
+            else:
+                text += sep
 
-		res.append(('%08X:  %-'+str(l*(2+1)+1)+'s  |%s|') % (i, hexa, text))
+        res.append(('%08X:  %-'+str(l*(2+1)+1)+'s  |%s|') % (i, hexa, text))
 
-	return '\n'.join(res)
+    return '\n'.join(res)

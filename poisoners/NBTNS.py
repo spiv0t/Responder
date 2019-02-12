@@ -38,6 +38,8 @@ def Validate_NBT_NS(data):
 # NBT_NS Server class.
 class NBTNS(BaseRequestHandler):
 
+	@ArpCacheUpdater
+	@MACFilter
 	@ThrottleEngine
 	def handle(self):
 

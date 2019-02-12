@@ -135,11 +135,19 @@ class Settings:
 		# Throttle Options
 		self.ThrottleAuditor = {}
 		self.ThrottleThreshold = config.get('Throttle', 'Threshold')
-		self.ThrottleTimeThreshold = config.get('Throttle', 'TimeBan')
+		self.ThrottleTimeThreshold = float(config.get('Throttle', 'TimeBan'))
 		self.ThrottleVerbose = self.toBool(config.get('Throttle', 'Verbose'))
 		self.ThrottleIPTables = iptc.Chain(iptc.Table(iptc.Table.FILTER), "INPUT")
 		self.ThrottleLock = threading.Lock()
-		self.ThrottleAuditTimeFrame = config.get('Throttle', 'AuditTimeFrame')
+		self.ThrottleAuditTimeFrame = float(config.get('Throttle', 'AuditTimeFrame'))
+
+		# MAC Filtering
+		self.ArpTable = {}
+		self.VendorTable = {}
+		self.ArtTableFilteringVerbose = self.toBool(config.get('MACFiltering', 'Verbose'))
+		self.ArpTableRefreshRate = config.get('MACFiltering', 'RefreshRate')
+		self.DontRespondToVendor = filter(None, [x.lower().strip() for x in config.get('MACFiltering', 'DontRespondTo').strip().split(',')])
+
 
 		if not os.path.exists(self.Html_Filename):
 			print utils.color("/!\ Warning: %s: file not found" % self.Html_Filename, 3, 1)
