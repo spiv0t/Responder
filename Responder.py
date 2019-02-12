@@ -21,6 +21,8 @@ from SocketServer import TCPServer, UDPServer, ThreadingMixIn
 from threading import Thread
 from utils import *
 
+from utils import RemoveIPTableRule
+
 banner()
 
 parser = optparse.OptionParser(usage='python %prog -I eth0 -w -r -f\nor:\npython %prog -I eth0 -wrf', version=settings.__version__, prog=sys.argv[0])
@@ -128,6 +130,23 @@ def serve_MDNS_poisoner(host, port, handler):
 	except:
 		print color("[!] ", 1, 1) + "Error starting UDP server on port " + str(port) + ", check permissions or other servers running."
 
+def arp_cache_builder():
+	MAC_RE = r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})'
+	IP_RE = r'((2[0-5]|1[0-9]|[0-9])?[0-9]\.){3}((2[0-5]|1[0-9]|[0-9])?[0-9])'
+	arpcache = settings.Config.ArpTable
+
+	while True:
+		with open("/proc/net/arp", 'r') as f:
+			for rec in f:
+				mac_grp = re.search(MAC_RE, rec)
+				ip_grp = re.search(IP_RE, rec)
+				if mac_grp and ip_grp:
+					mac = mac_grp.group()
+					ip = ip_grp.group()
+					arpcache[ip] = mac
+
+		time.sleep(float(settings.Config.ArpTableRefreshRate))
+
 def serve_LLMNR_poisoner(host, port, handler):
 	try:
 		server = ThreadingUDPLLMNRServer((host, port), handler)
@@ -176,7 +195,10 @@ def serve_thread_SSL(host, port, handler):
 
 def main():
 	try:
+		loadMacVendorTable()
+
 		threads = []
+		threads.append(Thread(target=arp_cache_builder))
 
 		# Load (M)DNS, NBNS and LLMNR Poisoners
 		from poisoners.LLMNR import LLMNR
@@ -257,6 +279,12 @@ def main():
 			time.sleep(1)
 
 	except KeyboardInterrupt:
+		auditor = settings.Config.ThrottleAuditor
+
+		for ip in auditor:
+			if auditor[ip]['iptableRule'] is not None:
+				RemoveIPTableRule(auditor[ip]['iptableRule'])
+
 		sys.exit("\r%s Exiting..." % color('[+]', 2, 1))
 
 if __name__ == '__main__':

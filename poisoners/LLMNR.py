@@ -46,6 +46,10 @@ if settings.Config.AnalyzeMode:
 
 
 class LLMNR(BaseRequestHandler):  # LLMNR Server class
+
+	@ArpCacheUpdater
+	@MACFilter
+	@ThrottleEngine
 	def handle(self):
 		data, soc = self.request
 		Name = Parse_LLMNR_Name(data)
