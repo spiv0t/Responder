@@ -22,7 +22,7 @@ import socket
 import time
 import threading
 import settings
-
+import socket
 import iptc
 
 try:
@@ -33,8 +33,10 @@ except:
 
 MAC_RE_COLON = r'([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})'
 
-def color(txt, code = 1, modifier = 0):
+
+def color(txt, code=1, modifier=0):
     return txt
+
 
 def text(txt):
     logging.info(txt)
@@ -43,15 +45,14 @@ def text(txt):
 
 def IsOnTheSameSubnet(ip, net):
     net += '/24'
-    ipaddr = int(''.join([ '%02x' % int(x) for x in ip.split('.') ]), 16)
+    ipaddr = int(''.join(['%02x' % int(x) for x in ip.split('.')]), 16)
     netstr, bits = net.split('/')
-    netaddr = int(''.join([ '%02x' % int(x) for x in netstr.split('.') ]), 16)
+    netaddr = int(''.join(['%02x' % int(x) for x in netstr.split('.')]), 16)
     mask = (0xffffffff << (32 - int(bits))) & 0xffffffff
     return (ipaddr & mask) == (netaddr & mask)
 
 
 def RespondToThisIP(ClientIp):
-
     if ClientIp.startswith('127.0.0.'):
         return False
     elif settings.Config.AutoIgnore and ClientIp in settings.Config.AutoIgnoreList:
@@ -64,6 +65,7 @@ def RespondToThisIP(ClientIp):
             return True
     return False
 
+
 def RespondToThisName(Name):
     if settings.Config.RespondToName and Name.upper() not in settings.Config.RespondToName:
         return False
@@ -72,16 +74,38 @@ def RespondToThisName(Name):
             return True
     return False
 
+
+def NameIsResolveable(Name):
+    try:
+        socket.gethostbyname(Name)
+    except socket.gaierror:
+        return False
+    return True
+
+
 def RespondToThisHost(ClientIp, Name):
-    return RespondToThisIP(ClientIp) and RespondToThisName(Name)
+
+    resolveable = False
+
+    if '.' in Name and NameIsResolveable(Name):
+        settings.Config.PoisonersLogger.info(
+            "Will not poison {} from {}".format(Name, ClientIp)
+        )
+        resolveable = True
+
+
+    return not resolveable and RespondToThisIP(ClientIp) and RespondToThisName(Name)
+
 
 def OsInterfaceIsSupported():
     if settings.Config.Interface != "Not set":
         return not IsOsX()
     return False
 
+
 def IsOsX():
     return sys.platform == "darwin"
+
 
 def FindLocalIP(Iface, OURIP):
     if Iface == 'ALL':
@@ -92,8 +116,8 @@ def FindLocalIP(Iface, OURIP):
             return OURIP
         elif OURIP == None:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.setsockopt(socket.SOL_SOCKET, 25, Iface+'\0')
-            s.connect(("127.0.0.1",9))#RFC 863
+            s.setsockopt(socket.SOL_SOCKET, 25, Iface + '\0')
+            s.connect(("127.0.0.1", 9))  # RFC 863
             ret = s.getsockname()[0]
             s.close()
             return ret
@@ -102,20 +126,21 @@ def FindLocalIP(Iface, OURIP):
         print color("[!] Error: %s: Interface not found" % Iface, 1)
         sys.exit(-1)
 
+
 # Function used to write captured hashs to a file.
 def WriteData(outfile, data, user):
     logging.info("[*] Captured Hash: %s" % data)
 
     if not os.path.isfile(outfile):
-        with open(outfile,"w") as outf:
+        with open(outfile, "w") as outf:
             outf.write(data + '\n')
         return
-    with open(outfile,"r") as filestr:
+    with open(outfile, "r") as filestr:
         if re.search(user.encode('hex'), filestr.read().encode('hex')):
             return False
         elif re.search(re.escape("$"), user):
             return False
-    with open(outfile,"a") as outf2:
+    with open(outfile, "a") as outf2:
         outf2.write(data + '\n')
 
 
@@ -123,11 +148,12 @@ def SaveToDb(result):
     # Creating the DB if it doesn't exist
     if not os.path.exists(settings.Config.DatabaseFile):
         cursor = sqlite3.connect(settings.Config.DatabaseFile)
-        cursor.execute('CREATE TABLE responder (timestamp varchar(32), module varchar(16), type varchar(16), client varchar(32), hostname varchar(32), user varchar(32), cleartext varchar(128), hash varchar(512), fullhash varchar(512))')
+        cursor.execute(
+            'CREATE TABLE responder (timestamp varchar(32), module varchar(16), type varchar(16), client varchar(32), hostname varchar(32), user varchar(32), cleartext varchar(128), hash varchar(512), fullhash varchar(512))')
         cursor.commit()
         cursor.close()
 
-    for k in [ 'module', 'type', 'client', 'hostname', 'user', 'cleartext', 'hash', 'fullhash' ]:
+    for k in ['module', 'type', 'client', 'hostname', 'user', 'cleartext', 'hash', 'fullhash']:
         if not k in result:
             result[k] = ''
 
@@ -143,19 +169,23 @@ def SaveToDb(result):
 
     cursor = sqlite3.connect(settings.Config.DatabaseFile)
     cursor.text_factory = sqlite3.Binary  # We add a text factory to support different charsets
-    res = cursor.execute("SELECT COUNT(*) AS count FROM responder WHERE module=? AND type=? AND client=? AND LOWER(user)=LOWER(?)", (result['module'], result['type'], result['client'], result['user']))
+    res = cursor.execute(
+        "SELECT COUNT(*) AS count FROM responder WHERE module=? AND type=? AND client=? AND LOWER(user)=LOWER(?)",
+        (result['module'], result['type'], result['client'], result['user']))
     (count,) = res.fetchone()
 
     if not count:
-        with open(logfile,"a") as outf:
+        with open(logfile, "a") as outf:
             if len(result['cleartext']):  # If we obtained cleartext credentials, write them to file
-                outf.write('%s:%s\n' % (result['user'].encode('utf8', 'replace'), result['cleartext'].encode('utf8', 'replace')))
+                outf.write('%s:%s\n' % (
+                    result['user'].encode('utf8', 'replace'), result['cleartext'].encode('utf8', 'replace')))
             else:  # Otherwise, write JtR-style hash string to file
                 outf.write(result['fullhash'].encode('utf8', 'replace') + '\n')
 
-        cursor.execute("INSERT INTO responder VALUES(datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?)", (result['module'], result['type'], result['client'], result['hostname'], result['user'], result['cleartext'], result['hash'], result['fullhash']))
+        cursor.execute("INSERT INTO responder VALUES(datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?)", (
+            result['module'], result['type'], result['client'], result['hostname'], result['user'], result['cleartext'],
+            result['hash'], result['fullhash']))
         cursor.commit()
-
 
     if not count or settings.Config.Verbose:  # Print output
         if len(result['client']):
@@ -180,21 +210,23 @@ def SaveToDb(result):
             print color('[*] Adding client %s to auto-ignore list' % result['client'], 4, 1)
     else:
         print color('[*]', 3, 1), 'Skipping previously captured hash for %s' % result['user']
-        cursor.execute("UPDATE responder SET timestamp=datetime('now') WHERE user=? AND client=?", (result['user'], result['client']))
+        cursor.execute("UPDATE responder SET timestamp=datetime('now') WHERE user=? AND client=?",
+                       (result['user'], result['client']))
         cursor.commit()
     cursor.close()
 
 
 def Parse_IPV6_Addr(data):
-    if data[len(data)-4:len(data)][1] =="\x1c":
+    if data[len(data) - 4:len(data)][1] == "\x1c":
         return False
-    elif data[len(data)-4:len(data)] == "\x00\x01\x00\x01":
+    elif data[len(data) - 4:len(data)] == "\x00\x01\x00\x01":
         return True
-    elif data[len(data)-4:len(data)] == "\x00\xff\x00\x01":
+    elif data[len(data) - 4:len(data)] == "\x00\xff\x00\x01":
         return True
     return False
 
-def Decode_Name(nbname):  #From http://code.google.com/p/dpkt/ with author's permission.
+
+def Decode_Name(nbname):  # From http://code.google.com/p/dpkt/ with author's permission.
     try:
         from string import printable
 
@@ -203,7 +235,7 @@ def Decode_Name(nbname):  #From http://code.google.com/p/dpkt/ with author's per
 
         l = []
         for i in range(0, 32, 2):
-            l.append(chr(((ord(nbname[i]) - 0x41) << 4) | ((ord(nbname[i+1]) - 0x41) & 0xf)))
+            l.append(chr(((ord(nbname[i]) - 0x41) << 4) | ((ord(nbname[i + 1]) - 0x41) & 0xf)))
 
         return filter(lambda x: x in printable, ''.join(l).split('\x00', 1)[0].replace(' ', ''))
     except:
@@ -212,13 +244,13 @@ def Decode_Name(nbname):  #From http://code.google.com/p/dpkt/ with author's per
 
 def NBT_NS_Role(data):
     return {
-        "\x41\x41\x00":"Workstation/Redirector",
-        "\x42\x4c\x00":"Domain Master Browser",
-        "\x42\x4d\x00":"Domain Controller",
-        "\x42\x4e\x00":"Local Master Browser",
-        "\x42\x4f\x00":"Browser Election",
-        "\x43\x41\x00":"File Server",
-        "\x41\x42\x00":"Browser",
+        "\x41\x41\x00": "Workstation/Redirector",
+        "\x42\x4c\x00": "Domain Master Browser",
+        "\x42\x4d\x00": "Domain Controller",
+        "\x42\x4e\x00": "Local Master Browser",
+        "\x42\x4f\x00": "Browser Election",
+        "\x43\x41\x00": "File Server",
+        "\x41\x42\x00": "Browser",
     }.get(data, 'Service not known')
 
 
@@ -226,7 +258,9 @@ def ThrottleEngine(func):
     def wrapper(self):
         func(self)
         HitCounter(self)
+
     return wrapper
+
 
 def BanByVendor(self):
     verbose = settings.Config.ArtTableFilteringVerbose
@@ -240,6 +274,7 @@ def BanByVendor(self):
                     print "[*] Dropped request from {} ({})".format(clientAddr, settings.Config.VendorTable[oui])
                 return True
     return False
+
 
 def ArpCacheUpdater(func):
     def wrapper(self):
@@ -259,70 +294,73 @@ def ArpCacheUpdater(func):
                             mac = mac_grp.group()
                             arpcache[clientAddr] = mac
         func(self)
+
     return wrapper
 
+
 def MACFilter(func):
-	def wrapper(self):
-		isBanned = BanByVendor(self)
-		if not isBanned:
-			func(self)
-	return wrapper
+    def wrapper(self):
+        isBanned = BanByVendor(self)
+        if not isBanned:
+            func(self)
+
+    return wrapper
 
 
 def HitCounter(srv):
-        clientAddr = srv.client_address[0]
-        dataDict = settings.Config.ThrottleAuditor
-        verbose = settings.Config.ThrottleVerbose
-        with settings.Config.ThrottleLock:
-            if (clientAddr not in dataDict):
-                if verbose:
-                    settings.Config.PoisonersLogger.info(
-                        "Starting monitoring {} for {} seconds".format(
-                            clientAddr, settings.Config.ThrottleAuditTimeFrame))
+    clientAddr = srv.client_address[0]
+    dataDict = settings.Config.ThrottleAuditor
+    verbose = settings.Config.ThrottleVerbose
+    with settings.Config.ThrottleLock:
+        if (clientAddr not in dataDict):
+            if verbose:
+                settings.Config.PoisonersLogger.info(
+                    "Starting monitoring {} for {} seconds".format(
+                        clientAddr, settings.Config.ThrottleAuditTimeFrame))
 
-                dataDict[clientAddr] = {}
-                dataDict[clientAddr]['value'] = 0
-                dataDict[clientAddr]['iptableRule'] = None
-                threading.Timer(settings.Config.ThrottleAuditTimeFrame, BlockageDecider, [srv]).start()
-            else:
-                dataDict[clientAddr]['value'] += 1
-                if verbose:
-                    settings.Config.PoisonersLogger.info(
-                        "Got a hit from {}, current state is {} hits".format(clientAddr, dataDict[clientAddr]['value'])
-                    )
+            dataDict[clientAddr] = {}
+            dataDict[clientAddr]['value'] = 0
+            dataDict[clientAddr]['iptableRule'] = None
+            threading.Timer(settings.Config.ThrottleAuditTimeFrame, BlockageDecider, [srv]).start()
+        else:
+            dataDict[clientAddr]['value'] += 1
+            if verbose:
+                settings.Config.PoisonersLogger.info(
+                    "Got a hit from {}, current state is {} hits".format(clientAddr, dataDict[clientAddr]['value'])
+                )
 
 
 def BlockageDecider(srv):
-        clientAddr = srv.client_address[0]
-        dataDict = settings.Config.ThrottleAuditor
-        hit_count = dataDict[clientAddr]['value']
-        verbose = settings.Config.ThrottleVerbose
+    clientAddr = srv.client_address[0]
+    dataDict = settings.Config.ThrottleAuditor
+    hit_count = dataDict[clientAddr]['value']
+    verbose = settings.Config.ThrottleVerbose
 
-        if hit_count > settings.Config.ThrottleThreshold:
-                if verbose:
-                    settings.Config.PoisonersLogger.info("{} reached max threshold of {} messages for {} seconds"
-                                                         .format(clientAddr,
-                                                                 settings.Config.ThrottleThreshold,
-                                                                 settings.Config.ThrottleAuditTimeFrame))
-                dataDict[clientAddr]['value'] = None
-                settings.Config.PoisonersLogger.info("Blocking {} for {} seconds".format(clientAddr,
-                                                                                         settings.Config.ThrottleTimeThreshold))
-                dataDict[clientAddr]['iptableRule'] = BlockIP(clientAddr)
-                threading.Timer(settings.Config.ThrottleTimeThreshold, ReleaseDecider, [srv]).start()
-        else:
-                if clientAddr in dataDict:
-                    settings.Config.PoisonersLogger.info("{} is not spamming the network, restarting the audit window"
-                                                         .format(clientAddr))
-                    del dataDict[clientAddr]
+    if hit_count > settings.Config.ThrottleThreshold:
+        if verbose:
+            settings.Config.PoisonersLogger.info("{} reached max threshold of {} messages for {} seconds"
+                                                 .format(clientAddr,
+                                                         settings.Config.ThrottleThreshold,
+                                                         settings.Config.ThrottleAuditTimeFrame))
+        dataDict[clientAddr]['value'] = None
+        settings.Config.PoisonersLogger.info("Blocking {} for {} seconds".format(clientAddr,
+                                                                                 settings.Config.ThrottleTimeThreshold))
+        dataDict[clientAddr]['iptableRule'] = BlockIP(clientAddr)
+        threading.Timer(settings.Config.ThrottleTimeThreshold, ReleaseDecider, [srv]).start()
+    else:
+        if clientAddr in dataDict:
+            settings.Config.PoisonersLogger.info("{} is not spamming the network, restarting the audit window"
+                                                 .format(clientAddr))
+            del dataDict[clientAddr]
 
 
 def ReleaseDecider(srv):
-        clientAddr = srv.client_address[0]
-        dataDict = settings.Config.ThrottleAuditor
-        RemoveIPTableRule(dataDict[clientAddr]['iptableRule'])
+    clientAddr = srv.client_address[0]
+    dataDict = settings.Config.ThrottleAuditor
+    RemoveIPTableRule(dataDict[clientAddr]['iptableRule'])
 
-        if clientAddr in dataDict:
-            del dataDict[clientAddr]
+    if clientAddr in dataDict:
+        del dataDict[clientAddr]
 
 
 def BlockIP(ip):
@@ -341,12 +379,13 @@ def RemoveIPTableRule(rule):
 
 
 def loadMacVendorTable():
-	vendor_table = settings.Config.VendorTable
-	with open('resources/mac_vendor', 'r') as f:
-		for record in f:
-			mac = record.split(' ')[0].lower().strip()
-			vendor = record.split(' ')[1].lower().strip()
-			vendor_table[mac] = vendor
+    vendor_table = settings.Config.VendorTable
+    with open('resources/mac_vendor', 'r') as f:
+        for record in f:
+            mac = record.split(' ')[0].lower().strip()
+            vendor = record.split(' ')[1].lower().strip()
+            vendor_table[mac] = vendor
+
 
 def banner():
     banner = "\n".join([
@@ -367,7 +406,7 @@ def banner():
 
 
 def StartupMessage():
-    enabled  = color('[ON]', 2, 1)
+    enabled = color('[ON]', 2, 1)
     disabled = color('[OFF]', 1, 1)
 
     print ""
@@ -397,7 +436,7 @@ def StartupMessage():
     print '    %-27s' % "Serving EXE" + (enabled if settings.Config.Serve_Exe else disabled)
     print '    %-27s' % "Serving HTML" + (enabled if settings.Config.Serve_Html else disabled)
     print '    %-27s' % "Upstream Proxy" + (enabled if settings.Config.Upstream_Proxy else disabled)
-    #print '    %-27s' % "WPAD script" + settings.Config.WPAD_Script
+    # print '    %-27s' % "WPAD script" + settings.Config.WPAD_Script
     print ""
 
     print color("[+] ", 2, 1) + "Poisoning Options:"
@@ -447,18 +486,18 @@ def hexdump(src, l=0x16):
     src = str(src)
 
     for i in range(0, len(src), l):
-        s = src[i:i+l]
+        s = src[i:i + l]
         hexa = ''
 
-        for h in range(0,len(s)):
-            if h == l/2:
+        for h in range(0, len(s)):
+            if h == l / 2:
                 hexa += ' '
             h = s[h]
             if not isinstance(h, int):
                 h = ord(h)
-            h = hex(h).replace('0x','')
+            h = hex(h).replace('0x', '')
             if len(h) == 1:
-                h = '0'+h
+                h = '0' + h
             hexa += h + ' '
 
         hexa = hexa.strip(' ')
@@ -473,6 +512,6 @@ def hexdump(src, l=0x16):
             else:
                 text += sep
 
-        res.append(('%08X:  %-'+str(l*(2+1)+1)+'s  |%s|') % (i, hexa, text))
+        res.append(('%08X:  %-' + str(l * (2 + 1) + 1) + 's  |%s|') % (i, hexa, text))
 
     return '\n'.join(res)
