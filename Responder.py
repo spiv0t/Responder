@@ -38,6 +38,10 @@ parser.add_option('-u','--upstream-proxy', action="store",      help="Upstream H
 parser.add_option('-F','--ForceWpadAuth',  action="store_true", help="Force NTLM/Basic authentication on wpad.dat file retrieval. This may cause a login prompt. Default: False", dest="Force_WPAD_Auth", default=False)
 parser.add_option('--lm',                  action="store_true", help="Force LM hashing downgrade for Windows XP/2003 and earlier. Default: False", dest="LM_On_Off", default=False)
 parser.add_option('-v','--verbose',        action="store_true", help="Increase verbosity.", dest="Verbose")
+parser.add_option('--rtf', 				   action='store',		help='File containing a list of IP addresses and ranges for the "RespondTo", setting. This file will be polled for changes.', metavar='RESPONDTOFILE', dest='Respond_To_File', default=None)
+parser.add_option('--rtnf', 			   action='store',		help='File containing a list of IP addresses and ranges for the "RespondToName", setting. This file will be polled for changes.', metavar='RESPONDTONAMEFILE', dest='Respond_To_Name_File', default=None)
+parser.add_option('--drt', 				   action='store',		help='File containing a list of IP addresses and ranges for the "DontRespondTo", setting. This file will be polled for changes.', metavar='DONTRESPONDTOFILE', dest='Dont_Respond_To_File', default=None)
+parser.add_option('--drtnf',			   action='store',		help='File containing a list of IP addresses and ranges for the "DontRespondToName", setting. This file will be polled for changes.', metavar='DONTRESPONDTONAMEFILE', dest='Dont_Respond_To_Name_File', default=None)
 options, args = parser.parse_args()
 
 if not os.geteuid() == 0:

@@ -19,6 +19,7 @@ import utils
 import ConfigParser
 import threading
 
+from file_poller import FilePoller
 from utils import *
 
 import iptc
@@ -26,7 +27,7 @@ import iptc
 __version__ = 'Responder 2.3'
 
 class Settings:
-	
+
 	def __init__(self):
 		self.ResponderPATH = os.path.dirname(__file__)
 		self.Bind_To = '0.0.0.0'
@@ -159,12 +160,6 @@ class Settings:
 		self.SSLKey  = config.get('HTTPS Server', 'SSLKey')
 		self.SSLCert = config.get('HTTPS Server', 'SSLCert')
 
-		# Respond to hosts
-		self.RespondTo         = filter(None, [x.upper().strip() for x in config.get('Responder Core', 'RespondTo').strip().split(',')])
-		self.RespondToName     = filter(None, [x.upper().strip() for x in config.get('Responder Core', 'RespondToName').strip().split(',')])
-		self.DontRespondTo     = filter(None, [x.upper().strip() for x in config.get('Responder Core', 'DontRespondTo').strip().split(',')])
-		self.DontRespondToName = filter(None, [x.upper().strip() for x in config.get('Responder Core', 'DontRespondToName').strip().split(',')])
-
 		# Auto Ignore List
 		self.AutoIgnore                 = self.toBool(config.get('Responder Core', 'AutoIgnoreAfterSuccess'))
 		self.CaptureMultipleCredentials = self.toBool(config.get('Responder Core', 'CaptureMultipleCredentials'))
@@ -222,6 +217,73 @@ class Settings:
 
 		self.AnalyzeLogger = logging.getLogger('Analyze Log')
 		self.AnalyzeLogger.addHandler(ALog_Handler)
+
+		# Set up response settings
+		self.filesToCallbacks = {}
+		if options.Respond_To_File:
+			logging.info("RespondTo will be filled from file '%s.' Responder.conf setting will be ignored." % options.Respond_To_File)
+			print ("%s RespondTo will be filled from file '%s.' Responder.conf setting will be ignored." % (utils.color('[+]', 2, 1), options.Respond_To_File))
+			self.filesToCallbacks[options.Respond_To_File] = self.update_respond_to
+		else:
+			self.RespondTo = filter(None, [x.upper().strip() for x in config.get('Responder Core', 'RespondTo').strip().split(',')])
+		if options.Respond_To_Name_File:
+			logging.info("RespondToName will be filled from file '%s.' Responder.conf setting will be ignored." % options.Respond_To_File)
+			print ("%s RespondToName will be filled from file '%s.' Responder.conf setting will be ignored." % (utils.color('[+]', 2, 1), options.Respond_To_File))
+			self.filesToCallbacks[options.Respond_To_Name_File] = self.update_respond_to_name
+		else:
+			self.RespondToName = filter(None, [x.upper().strip() for x in config.get('Responder Core', 'RespondToName').strip().split(',')])
+		if options.Dont_Respond_To_File:
+			logging.info("DontRespondTo will be filled from file '%s.' Responder.conf setting will be ignored." % options.Respond_To_File)
+			print ("%s DontRespondTo will be filled from file '%s.' Responder.conf setting will be ignored." % (utils.color('[+]', 2, 1), options.Respond_To_File))
+			self.filesToCallbacks[options.Dont_Respond_To_File] = self.update_dont_respond_to
+		else:
+			self.DontRespondTo = filter(None, [x.upper().strip() for x in config.get('Responder Core', 'DontRespondTo').strip().split(',')])
+		if options.Dont_Respond_To_Name_File:
+			logging.info("DontRespondToName will be filled from file '%s.' Responder.conf setting will be ignored." % options.Respond_To_File)
+			print ("%s DontRespondToName will be filled from file '%s.' Responder.conf setting will be ignored." % (utils.color('[+]', 2, 1), options.Respond_To_File))
+			self.filesToCallbacks[options.Dont_Respond_To_Name_File] = self.update_dont_respond_to_name
+		else:
+			self.DontRespondToName = filter(None, [x.upper().strip() for x in config.get('Responder Core', 'DontRespondToName').strip().split(',')])
+
+		if self.filesToCallbacks:
+			file_poller = FilePoller(self.filesToCallbacks)
+			file_poller.start()
+			logging.info("File pollers started for files: %s" % self.filesToCallbacks.keys())
+			print ("%s File pollers started for files: %s" % (utils.color('[+]', 2, 1), self.filesToCallbacks.keys()))
+
+
+	@staticmethod
+	def read_file_lines(filename):
+		if filename and os.path.exists(filename):
+			with open(filename, 'r') as f:
+				return f.read().splitlines()
+		else:
+			logging.error("File %s doesn't exist")
+			return []
+
+	def update_respond_to(self, filename):
+		self.RespondTo = set(Settings.read_file_lines(filename))
+		self.ExpandIPRanges()
+		logging.info("RespondTo updated: %s" % self.RespondTo)
+		print ("%s RespondTo updated: %s" % (utils.color('[+]', 2, 1), self.RespondTo))
+
+	def update_respond_to_name(self, filename):
+		self.RespondToName = set(Settings.read_file_lines(filename))
+		logging.info("RespondToName updated: %s" % self.RespondToName)
+		print ("%s RespondToName updated: %s" % (utils.color('[+]', 2, 1), self.RespondToName))
+
+	def update_dont_respond_to(self, filename):
+		self.DontRespondTo = set(Settings.read_file_lines(filename))
+		self.ExpandIPRanges()
+		logging.info("DontRespondTo updated: %s" % self.DontRespondTo)
+		print ("%s DontRespondTo updated: %s" % (utils.color('[+]', 2, 1), self.DontRespondTo))
+
+	def update_dont_respond_to_name(self, filename):
+		self.DontRespondToName = set(Settings.read_file_lines(filename))
+		logging.info("DontRespondToName updated: %s" % self.DontRespondToName)
+		print ("%s DontRespondToName updated: %s" % (utils.color('[+]', 2, 1), self.DontRespondToName))
+
+
 
 def init():
 	global Config
