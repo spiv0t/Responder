@@ -263,23 +263,31 @@ class Settings:
 
 	def update_respond_to(self, filename):
 		self.RespondTo = set(Settings.read_file_lines(filename)) or []
+		if self.RespondTo == {''}:
+			self.RespondTo = []
 		self.ExpandIPRanges()
 		logging.info("RespondTo updated: %s" % self.RespondTo)
 		print ("%s RespondTo updated: %s" % (utils.color('[+]', 2, 1), self.RespondTo))
 
 	def update_respond_to_name(self, filename):
 		self.RespondToName = set(Settings.read_file_lines(filename)) or []
+		if self.RespondToName == {''}:
+			self.RespondToName = []
 		logging.info("RespondToName updated: %s" % self.RespondToName)
 		print ("%s RespondToName updated: %s" % (utils.color('[+]', 2, 1), self.RespondToName))
 
 	def update_dont_respond_to(self, filename):
 		self.DontRespondTo = set(Settings.read_file_lines(filename)) or []
+		if self.DontRespondTo == {''}:
+			self.DontRespondTo = []
 		self.ExpandIPRanges()
 		logging.info("DontRespondTo updated: %s" % self.DontRespondTo)
 		print ("%s DontRespondTo updated: %s" % (utils.color('[+]', 2, 1), self.DontRespondTo))
 
 	def update_dont_respond_to_name(self, filename):
 		self.DontRespondToName = set(Settings.read_file_lines(filename)) or []
+		if self.DontRespondToName == {''}:
+			self.DontRespondToName = []
 		logging.info("DontRespondToName updated: %s" % self.DontRespondToName)
 		print ("%s DontRespondToName updated: %s" % (utils.color('[+]', 2, 1), self.DontRespondToName))
 
