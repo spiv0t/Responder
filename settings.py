@@ -256,38 +256,40 @@ class Settings:
 	def read_file_lines(filename):
 		if filename and os.path.exists(filename):
 			with open(filename, 'r') as f:
-				return f.read().splitlines()
+				lines = f.read().splitlines()
+				lines = [line for line in lines if line != '']
+				return lines
 		else:
 			logging.error("File %s doesn't exist")
 			return []
 
+	def update_response_from_file(self, attr, filename):
+		new_values = set(Settings.read_file_lines(filename)) or []
+		# If the file contains a single empty line, the above operation will result in an empty set, or '{''}', which
+		# is truth-y. Hence, we have this additional check.
+		if new_values == {''}:
+			new_values = []
+		setattr(self, attr, new_values)
+
 	def update_respond_to(self, filename):
-		self.RespondTo = set(Settings.read_file_lines(filename)) or []
-		if self.RespondTo == {''}:
-			self.RespondTo = []
+		self.update_response_from_file('RespondTo', filename)
 		self.ExpandIPRanges()
 		logging.info("RespondTo updated: %s" % self.RespondTo)
 		print ("%s RespondTo updated: %s" % (utils.color('[+]', 2, 1), self.RespondTo))
 
 	def update_respond_to_name(self, filename):
-		self.RespondToName = set(Settings.read_file_lines(filename)) or []
-		if self.RespondToName == {''}:
-			self.RespondToName = []
+		self.update_response_from_file('RespondToName', filename)
 		logging.info("RespondToName updated: %s" % self.RespondToName)
 		print ("%s RespondToName updated: %s" % (utils.color('[+]', 2, 1), self.RespondToName))
 
 	def update_dont_respond_to(self, filename):
-		self.DontRespondTo = set(Settings.read_file_lines(filename)) or []
-		if self.DontRespondTo == {''}:
-			self.DontRespondTo = []
+		self.update_response_from_file('DontRespondTo', filename)
 		self.ExpandIPRanges()
 		logging.info("DontRespondTo updated: %s" % self.DontRespondTo)
 		print ("%s DontRespondTo updated: %s" % (utils.color('[+]', 2, 1), self.DontRespondTo))
 
 	def update_dont_respond_to_name(self, filename):
-		self.DontRespondToName = set(Settings.read_file_lines(filename)) or []
-		if self.DontRespondToName == {''}:
-			self.DontRespondToName = []
+		self.update_response_from_file('DontRespondToName', filename)
 		logging.info("DontRespondToName updated: %s" % self.DontRespondToName)
 		print ("%s DontRespondToName updated: %s" % (utils.color('[+]', 2, 1), self.DontRespondToName))
 
