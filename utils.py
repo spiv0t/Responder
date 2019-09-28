@@ -18,8 +18,6 @@ import os
 import sys
 import re
 import logging
-import socket
-import time
 import threading
 import settings
 import socket
